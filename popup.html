@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Izy Token Monitor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="izy-popup">
+    <!-- Minimalist Header -->
+    <header class="izy-header">
+      <div class="izy-brand">
+        <div class="izy-badge">IZY</div>
+        <div class="izy-brand-info">
+          <h1>Izy Token Monitor</h1>
+          <span class="izy-tag">Warning Threshold & Persistent HUD</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Settings Form -->
+    <main class="izy-body">
+      <!-- Calculation Mode -->
+      <div class="izy-field">
+        <label for="mode-select">Modo de Cálculo</label>
+        <select id="mode-select" class="izy-select">
+          <option value="heuristic">Heurístico Offline (~3.5 chars/tok)</option>
+          <option value="api">Exato via Google AI Studio API</option>
+        </select>
+        <p class="izy-hint" id="mode-helper">Processamento local instantâneo sem tráfego externo.</p>
+      </div>
+
+      <!-- API Key Field -->
+      <div class="izy-field" id="api-key-group">
+        <div class="izy-label-split">
+          <label for="api-key-input">AI Studio API Key</label>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="izy-link">Obter chave ↗</a>
+        </div>
+        <div class="izy-input-wrapper">
+          <input
+            type="password"
+            id="api-key-input"
+            class="izy-input font-mono"
+            placeholder="AIzaSy..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" id="toggle-visibility-btn" class="izy-icon-btn" title="Mostrar/Ocultar chave">
+            <svg id="eye-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg id="eye-off-icon" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+              <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+              <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+              <line x1="2" x2="22" y1="2" y2="22"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Context Window -->
+      <div class="izy-field">
+        <label for="context-window-select">Capacidade da Janela</label>
+        <select id="context-window-select" class="izy-select">
+          <option value="1000000">1.000.000 tokens (Gemini 1.5 Flash / Pro)</option>
+          <option value="2000000">2.000.000 tokens (Gemini 1.5 Pro Long)</option>
+          <option value="128000">128.000 tokens (Gemini Compact)</option>
+        </select>
+      </div>
+
+      <!-- Warning Threshold Configuration (10-20%) -->
+      <div class="izy-panel">
+        <div class="izy-panel-header">
+          <span class="izy-panel-title">Warning Threshold (10% - 20%)</span>
+          <input type="checkbox" id="enable-early-alert-checkbox" checked class="izy-check" />
+        </div>
+
+        <div class="izy-field">
+          <div class="izy-range-header">
+            <span class="izy-range-label">Limiar de Alerta Customizável</span>
+            <span id="threshold-val-badge" class="izy-range-val">15%</span>
+          </div>
+          <input
+            type="range"
+            id="warning-threshold-range"
+            min="10"
+            max="20"
+            step="1"
+            value="15"
+            class="izy-range"
+          />
+          <div class="izy-range-ticks">
+            <span>10% (100k)</span>
+            <span>15% (150k)</span>
+            <span>20% (200k)</span>
+          </div>
+        </div>
+
+        <div class="izy-grid-2">
+          <div class="izy-field">
+            <label for="error-margin-select">Margem de Erro</label>
+            <select id="error-margin-select" class="izy-select">
+              <option value="10">+10%</option>
+              <option value="15" selected>+15%</option>
+              <option value="20">+20%</option>
+            </select>
+          </div>
+          <div class="izy-field">
+            <label for="persistent-block-toggle">Bloco Persistente</label>
+            <select id="persistent-block-toggle" class="izy-select">
+              <option value="true" selected>Ativo no HUD</option>
+              <option value="false">Apenas Badge</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Display Positioning -->
+      <div class="izy-field">
+        <label for="hud-position-select">Posicionamento do HUD</label>
+        <select id="hud-position-select" class="izy-select">
+          <option value="top-right">Superior Direito (Não intrusivo)</option>
+          <option value="top-center">Barra Superior Central</option>
+          <option value="bottom-right">Inferior Direito</option>
+        </select>
+      </div>
+
+      <div class="izy-checkbox-row">
+        <label class="izy-checkbox-label">
+          <input type="checkbox" id="auto-collapse-checkbox" checked class="izy-check">
+          <span>Modo Ultracompacto / Pílula Flutuante</span>
+        </label>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="izy-footer">
+      <div id="status-message" class="izy-status" aria-live="polite"></div>
+      <button type="button" id="save-btn" class="izy-btn-primary">Salvar Preferências</button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
