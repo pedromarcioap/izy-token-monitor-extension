@@ -52,6 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (thresholdValBadge) {
       thresholdValBadge.textContent = `${val}%`;
     }
+    if (warningThresholdRange) {
+      warningThresholdRange.setAttribute('aria-valuenow', String(val));
+      warningThresholdRange.setAttribute('aria-valuetext', `${val}%`);
+    }
   }
 
   function showStatus(text, type = 'success', duration = 2500) {
@@ -65,32 +69,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }, duration);
   }
 
+  function renderActiveChatInfo(res) {
+    if (!activeChatBadge) return;
+    if (res?.chatId) {
+      const displayId = res.chatId.length > 12 ? `${res.chatId.substring(0, 10)}...` : res.chatId;
+      activeChatBadge.textContent = `${displayId} (${res.tokens || 0} tok)`;
+    } else {
+      activeChatBadge.textContent = 'Aba Gemini não ativa';
+    }
+  }
+
+  function handleActiveTabForChatInfo(tabs) {
+    if (tabs && tabs.length > 0 && tabs[0].id) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_CHAT_INFO' }, renderActiveChatInfo);
+    }
+  }
+
   function queryActiveChatInfo() {
-    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs.length > 0 && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_CHAT_INFO' }, (res) => {
-            if (res && res.chatId) {
-              const displayId = res.chatId.length > 12 ? `${res.chatId.substring(0, 10)}...` : res.chatId;
-              if (activeChatBadge) {
-                activeChatBadge.textContent = `${displayId} (${res.tokens || 0} tok)`;
-              }
-            } else if (activeChatBadge) {
-              activeChatBadge.textContent = 'Aba Gemini não ativa';
-            }
-          });
-        }
-      });
+    if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }, handleActiveTabForChatInfo);
     }
   }
 
   // Load saved configuration
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+  if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
     chrome.storage.sync.get(DEFAULT_CONFIG, (items) => {
       modeSelect.value = items.mode || DEFAULT_CONFIG.mode;
       apiKeyInput.value = items.apiKey || '';
       contextWindowSelect.value = String(items.maxContextTokens || DEFAULT_CONFIG.maxContextTokens);
-      
+
       const threshold = items.warningThresholdPercent || items.alertThresholdPercent || DEFAULT_CONFIG.warningThresholdPercent;
       warningThresholdRange.value = String(threshold);
       updateRangeBadge(threshold);
@@ -98,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
       errorMarginSelect.value = String(items.errorMarginPercent || DEFAULT_CONFIG.errorMarginPercent);
       persistentBlockToggle.value = items.enablePersistentBlock !== false ? 'true' : 'false';
       enableEarlyAlertCheckbox.checked = items.enableEarlyAlert !== undefined ? Boolean(items.enableEarlyAlert) : DEFAULT_CONFIG.enableEarlyAlert;
-      
+
       if (enablePerChatCheckbox) {
         enablePerChatCheckbox.checked = items.enablePerChatTracking !== undefined ? Boolean(items.enablePerChatTracking) : DEFAULT_CONFIG.enablePerChatTracking;
       }
@@ -111,21 +118,27 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function handleResetChatResponse(res) {
+    if (res?.success) {
+      showStatus('Tokens do chat resetados.', 'success');
+      queryActiveChatInfo();
+    }
+  }
+
+  function handleActiveTabForReset(tabs) {
+    if (tabs && tabs.length > 0 && tabs[0].id) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'RESET_CHAT_TOKENS' }, handleResetChatResponse);
+    }
+  }
+
+  function resetActiveChatTokens() {
+    if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }, handleActiveTabForReset);
+    }
+  }
+
   if (resetChatBtn) {
-    resetChatBtn.addEventListener('click', () => {
-      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs && tabs.length > 0 && tabs[0].id) {
-            chrome.tabs.sendMessage(tabs[0].id, { action: 'RESET_CHAT_TOKENS' }, (res) => {
-              if (res && res.success) {
-                showStatus('Tokens do chat resetados.', 'success');
-                queryActiveChatInfo();
-              }
-            });
-          }
-        });
-      }
-    });
+    resetChatBtn.addEventListener('click', resetActiveChatTokens);
   }
 
   warningThresholdRange.addEventListener('input', (e) => {
@@ -143,55 +156,58 @@ document.addEventListener('DOMContentLoaded', () => {
     updateModeUI(modeSelect.value);
   });
 
+  function notifyTabOfSettings(tab, payload) {
+    if (!tab.id) return;
+    chrome.tabs.sendMessage(tab.id, {
+      action: 'SETTINGS_UPDATED',
+      settings: payload
+    }).catch(() => { });
+  }
+
+  function notifyGeminiTabs(tabs, payload) {
+    if (tabs && tabs.length > 0) {
+      tabs.forEach((tab) => notifyTabOfSettings(tab, payload));
+    }
+  }
+
+  function broadcastSettingsToGeminiTabs(payload) {
+    chrome.tabs.query({ url: '*://gemini.google.com/*' }, (tabs) => {
+      notifyGeminiTabs(tabs, payload);
+    });
+  }
+
+  function buildSettingsPayload() {
+    const warningThresholdPercent = Number.parseInt(warningThresholdRange.value, 10) || 15;
+    return {
+      mode: modeSelect.value,
+      apiKey: apiKeyInput.value.trim(),
+      maxContextTokens: Number.parseInt(contextWindowSelect.value, 10) || 1000000,
+      warningThresholdPercent: warningThresholdPercent,
+      alertThresholdPercent: warningThresholdPercent,
+      errorMarginPercent: Number.parseInt(errorMarginSelect.value, 10) || 15,
+      enableEarlyAlert: enableEarlyAlertCheckbox.checked,
+      enablePersistentBlock: persistentBlockToggle.value === 'true',
+      enablePerChatTracking: enablePerChatCheckbox ? enablePerChatCheckbox.checked : true,
+      hudPosition: hudPositionSelect.value || 'top-right',
+      autoCollapse: autoCollapseCheckbox.checked,
+      model: 'gemini-1.5-flash'
+    };
+  }
+
   // Save configuration
   saveBtn.addEventListener('click', () => {
-    const selectedMode = modeSelect.value;
-    const apiKey = apiKeyInput.value.trim();
-    const maxContextTokens = parseInt(contextWindowSelect.value, 10) || 1000000;
-    const warningThresholdPercent = parseInt(warningThresholdRange.value, 10) || 15;
-    const errorMarginPercent = parseInt(errorMarginSelect.value, 10) || 15;
-    const enableEarlyAlert = enableEarlyAlertCheckbox.checked;
-    const enablePersistentBlock = persistentBlockToggle.value === 'true';
-    const enablePerChatTracking = enablePerChatCheckbox ? enablePerChatCheckbox.checked : true;
-    const hudPosition = hudPositionSelect.value || 'top-right';
-    const autoCollapse = autoCollapseCheckbox.checked;
+    const payload = buildSettingsPayload();
 
-    if (selectedMode === 'api' && !apiKey) {
+    if (payload.mode === 'api' && !payload.apiKey) {
       showStatus('Insira a API Key para usar o Modo Exato.', 'warning', 3500);
       apiKeyInput.focus();
       return;
     }
 
-    const payload = {
-      mode: selectedMode,
-      apiKey: apiKey,
-      maxContextTokens: maxContextTokens,
-      warningThresholdPercent: warningThresholdPercent,
-      alertThresholdPercent: warningThresholdPercent,
-      errorMarginPercent: errorMarginPercent,
-      enableEarlyAlert: enableEarlyAlert,
-      enablePersistentBlock: enablePersistentBlock,
-      enablePerChatTracking: enablePerChatTracking,
-      hudPosition: hudPosition,
-      autoCollapse: autoCollapse,
-      model: 'gemini-1.5-flash'
-    };
-
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
       chrome.storage.sync.set(payload, () => {
         showStatus('Preferências salvas com sucesso!', 'success');
-        chrome.tabs.query({ url: '*://gemini.google.com/*' }, (tabs) => {
-          if (tabs && tabs.length > 0) {
-            tabs.forEach((tab) => {
-              if (tab.id) {
-                chrome.tabs.sendMessage(tab.id, {
-                  action: 'SETTINGS_UPDATED',
-                  settings: payload
-                }).catch(() => {});
-              }
-            });
-          }
-        });
+        broadcastSettingsToGeminiTabs(payload);
       });
     } else {
       showStatus('Salvo localmente.', 'success');

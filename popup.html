@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Izy Token Monitor</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="izy-popup">
     <!-- Minimalist Header -->
@@ -35,27 +37,24 @@
       <div class="izy-field" id="api-key-group">
         <div class="izy-label-split">
           <label for="api-key-input">AI Studio API Key</label>
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="izy-link">Obter chave ↗</a>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
+            class="izy-link">Obter chave ↗</a>
         </div>
         <div class="izy-input-wrapper">
-          <input
-            type="password"
-            id="api-key-input"
-            class="izy-input font-mono"
-            placeholder="AIzaSy..."
-            autocomplete="off"
-            spellcheck="false"
-          />
+          <input type="password" id="api-key-input" class="izy-input font-mono" placeholder="AIzaSy..."
+            autocomplete="off" spellcheck="false" />
           <button type="button" id="toggle-visibility-btn" class="izy-icon-btn" title="Mostrar/Ocultar chave">
-            <svg id="eye-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-              <circle cx="12" cy="12" r="3"/>
+            <svg id="eye-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
             </svg>
-            <svg id="eye-off-icon" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
-              <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
-              <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
-              <line x1="2" x2="22" y1="2" y2="22"/>
+            <svg id="eye-off-icon" class="hidden" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+              <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+              <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+              <line x1="2" x2="22" y1="2" y2="22" />
             </svg>
           </button>
         </div>
@@ -74,24 +73,22 @@
       <!-- Warning Threshold Configuration (10-20%) -->
       <div class="izy-panel">
         <div class="izy-panel-header">
-          <span class="izy-panel-title">Warning Threshold (10% - 20%)</span>
-          <input type="checkbox" id="enable-early-alert-checkbox" checked class="izy-check" />
+          <span class="izy-panel-title" id="enable-early-alert-label">Warning Threshold (10% - 20%)</span>
+          <label class="izy-checkbox-label" for="enable-early-alert-checkbox">
+            <input type="checkbox" id="enable-early-alert-checkbox" class="izy-check" checked
+              aria-labelledby="enable-early-alert-label" />
+            <span class="izy-visually-hidden">Ativar alerta antecipado de limiar</span>
+          </label>
         </div>
 
         <div class="izy-field">
           <div class="izy-range-header">
-            <span class="izy-range-label">Limiar de Alerta Customizável</span>
-            <span id="threshold-val-badge" class="izy-range-val">15%</span>
+            <label class="izy-range-label" for="warning-threshold-range">Limiar de Alerta Customizável</label>
+            <span id="threshold-val-badge" class="izy-range-val" aria-hidden="true">15%</span>
           </div>
-          <input
-            type="range"
-            id="warning-threshold-range"
-            min="10"
-            max="20"
-            step="1"
-            value="15"
-            class="izy-range"
-          />
+          <input type="range" id="warning-threshold-range" min="10" max="20" step="1" value="15" class="izy-range"
+            aria-valuemin="10" aria-valuemax="20" aria-valuenow="15" aria-valuetext="15%"
+            aria-describedby="threshold-val-badge" />
           <div class="izy-range-ticks">
             <span>10% (100k)</span>
             <span>15% (150k)</span>
@@ -121,8 +118,12 @@
       <!-- Per-Chat Tracking Panel -->
       <div class="izy-panel">
         <div class="izy-panel-header">
-          <span class="izy-panel-title">Contabilização por Chat (ID)</span>
-          <input type="checkbox" id="enable-per-chat-checkbox" checked class="izy-check" />
+          <span class="izy-panel-title" id="enable-per-chat-label">Contabilização por Chat (ID)</span>
+          <label class="izy-checkbox-label" for="enable-per-chat-checkbox">
+            <input type="checkbox" id="enable-per-chat-checkbox" checked class="izy-check"
+              aria-labelledby="enable-per-chat-label" />
+            <span class="izy-visually-hidden">Ativar contabilização de tokens por Chat ID</span>
+          </label>
         </div>
         <p class="izy-hint">
           Armazena a contagem de tokens por Chat ID do início da conversa até o momento atual, sem resetar no reload.
@@ -163,4 +164,5 @@
 
   <script src="popup.js"></script>
 </body>
+
 </html>

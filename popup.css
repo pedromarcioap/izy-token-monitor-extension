@@ -94,7 +94,8 @@ body {
   text-decoration: underline;
 }
 
-.izy-select, .izy-input {
+.izy-select,
+.izy-input {
   width: 100%;
   background-color: #141416;
   border: 1px solid #27272a;
@@ -106,7 +107,8 @@ body {
   transition: border-color 0.15s ease;
 }
 
-.izy-select:focus, .izy-input:focus {
+.izy-select:focus,
+.izy-input:focus {
   border-color: #71717a;
 }
 
@@ -194,8 +196,8 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   font-weight: 700;
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.15);
+  color: #fde68a;
+  background-color: #372d18;
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -229,6 +231,18 @@ body {
   width: 14px;
   height: 14px;
   cursor: pointer;
+}
+
+.izy-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .izy-checkbox-row {
@@ -279,7 +293,7 @@ body {
   cursor: pointer;
   border: 1px solid #27272a;
   background-color: #18181b;
-  color: #a1a1aa;
+  color: #e4e4e7;
   transition: all 0.15s ease;
   margin-top: 4px;
 }
@@ -292,8 +306,8 @@ body {
 .izy-chat-badge {
   font-size: 10px;
   font-weight: 600;
-  color: #34d399;
-  background: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+  background-color: #182b26;
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -304,7 +318,14 @@ body {
   min-height: 14px;
 }
 
-.izy-status.success { color: #a1a1aa; }
-.izy-status.warning { color: #fbbf24; }
+.izy-status.success {
+  color: #a1a1aa;
+}
 
-.hidden { display: none !important; }
+.izy-status.warning {
+  color: #fbbf24;
+}
+
+.hidden {
+  display: none !important;
+}
