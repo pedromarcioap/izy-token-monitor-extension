@@ -304,3 +304,17 @@
 .izy-hidden {
   display: none !important;
 }
+
+.izy-chat-id-badge {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.izy-text-emerald {
+  color: #34d399 !important;
+}
+

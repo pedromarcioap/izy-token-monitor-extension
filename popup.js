@@ -1,6 +1,7 @@
 /**
  * Izy Token Monitor - Popup Script
- * Manages configuration including customizable Warning Threshold (10-20%).
+ * Manages configuration including customizable Warning Threshold (10-20%)
+ * and per-Chat ID token persistence options.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,6 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const errorMarginSelect = document.getElementById('error-margin-select');
   const persistentBlockToggle = document.getElementById('persistent-block-toggle');
   const enableEarlyAlertCheckbox = document.getElementById('enable-early-alert-checkbox');
+  const enablePerChatCheckbox = document.getElementById('enable-per-chat-checkbox');
+  const activeChatBadge = document.getElementById('active-chat-badge');
+  const resetChatBtn = document.getElementById('reset-chat-btn');
   const hudPositionSelect = document.getElementById('hud-position-select');
   const autoCollapseCheckbox = document.getElementById('auto-collapse-checkbox');
   const saveBtn = document.getElementById('save-btn');
@@ -29,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     errorMarginPercent: 15,
     enableEarlyAlert: true,
     enablePersistentBlock: true,
+    enablePerChatTracking: true,
     hudPosition: 'top-right',
     autoCollapse: true,
     model: 'gemini-1.5-flash'
@@ -60,6 +65,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }, duration);
   }
 
+  function queryActiveChatInfo() {
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs.length > 0 && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_CHAT_INFO' }, (res) => {
+            if (res && res.chatId) {
+              const displayId = res.chatId.length > 12 ? `${res.chatId.substring(0, 10)}...` : res.chatId;
+              if (activeChatBadge) {
+                activeChatBadge.textContent = `${displayId} (${res.tokens || 0} tok)`;
+              }
+            } else if (activeChatBadge) {
+              activeChatBadge.textContent = 'Aba Gemini não ativa';
+            }
+          });
+        }
+      });
+    }
+  }
+
   // Load saved configuration
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
     chrome.storage.sync.get(DEFAULT_CONFIG, (items) => {
@@ -74,9 +98,33 @@ document.addEventListener('DOMContentLoaded', () => {
       errorMarginSelect.value = String(items.errorMarginPercent || DEFAULT_CONFIG.errorMarginPercent);
       persistentBlockToggle.value = items.enablePersistentBlock !== false ? 'true' : 'false';
       enableEarlyAlertCheckbox.checked = items.enableEarlyAlert !== undefined ? Boolean(items.enableEarlyAlert) : DEFAULT_CONFIG.enableEarlyAlert;
+      
+      if (enablePerChatCheckbox) {
+        enablePerChatCheckbox.checked = items.enablePerChatTracking !== undefined ? Boolean(items.enablePerChatTracking) : DEFAULT_CONFIG.enablePerChatTracking;
+      }
+
       hudPositionSelect.value = items.hudPosition || DEFAULT_CONFIG.hudPosition;
       autoCollapseCheckbox.checked = items.autoCollapse !== undefined ? Boolean(items.autoCollapse) : DEFAULT_CONFIG.autoCollapse;
       updateModeUI(modeSelect.value);
+
+      queryActiveChatInfo();
+    });
+  }
+
+  if (resetChatBtn) {
+    resetChatBtn.addEventListener('click', () => {
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs && tabs.length > 0 && tabs[0].id) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'RESET_CHAT_TOKENS' }, (res) => {
+              if (res && res.success) {
+                showStatus('Tokens do chat resetados.', 'success');
+                queryActiveChatInfo();
+              }
+            });
+          }
+        });
+      }
     });
   }
 
@@ -104,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorMarginPercent = parseInt(errorMarginSelect.value, 10) || 15;
     const enableEarlyAlert = enableEarlyAlertCheckbox.checked;
     const enablePersistentBlock = persistentBlockToggle.value === 'true';
+    const enablePerChatTracking = enablePerChatCheckbox ? enablePerChatCheckbox.checked : true;
     const hudPosition = hudPositionSelect.value || 'top-right';
     const autoCollapse = autoCollapseCheckbox.checked;
 
@@ -122,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
       errorMarginPercent: errorMarginPercent,
       enableEarlyAlert: enableEarlyAlert,
       enablePersistentBlock: enablePersistentBlock,
+      enablePerChatTracking: enablePerChatTracking,
       hudPosition: hudPosition,
       autoCollapse: autoCollapse,
       model: 'gemini-1.5-flash'

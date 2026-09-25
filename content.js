@@ -1,6 +1,7 @@
 /**
  * Izy Token Monitor - Content Script (Manifest V3)
- * Non-intrusive floating context meter with persistent Warning Threshold notification block.
+ * Non-intrusive floating context meter with persistent Warning Threshold notification block
+ * and per-Chat ID token accounting across page reloads.
  */
 
 (function () {
@@ -19,6 +20,7 @@
     errorMarginPercent: 15,
     enableEarlyAlert: true,
     enablePersistentBlock: true,
+    enablePerChatTracking: true,
     hudPosition: 'top-right',
     autoCollapse: true,
     model: 'gemini-1.5-flash'
@@ -32,17 +34,21 @@
   let currentTokenCount = 0;
   let isApiFallback = false;
   let isBlockDismissed = false;
+  let currentChatId = 'chat_default';
+  let storedChatTokens = 0;
 
   // DOM Selectors for Gemini Chat Content
-  const MESSAGE_SELECTORS = [
+  const PRIMARY_MESSAGE_SELECTORS = [
     'user-query',
     'model-response',
     'ms-user-query',
-    'ms-response-container',
-    '.message-content',
+    'ms-response-container'
+  ];
+
+  const FALLBACK_MESSAGE_SELECTORS = [
     'div[class*="query-content"]',
     'div[class*="response-content"]',
-    'div.markdown'
+    '.message-content'
   ];
 
   const EXCLUDE_SELECTORS = [
@@ -60,13 +66,146 @@
 
   async function init() {
     await loadConfig();
+    currentChatId = getChatId();
+    
+    // Instantly load stored tokens for current Chat ID before DOM rendering
+    await restoreTokensForChat(currentChatId);
+
     injectMinimalHUD();
     setupDOMObserver();
     setupMessageBridge();
+    setupURLObserver();
 
     setTimeout(() => {
       calculateTokens();
-    }, 1000);
+    }, 800);
+  }
+
+  function getChatId() {
+    try {
+      const pathname = window.location.pathname;
+      const parts = pathname.split('/').filter(Boolean);
+
+      for (let i = 0; i < parts.length; i++) {
+        const seg = parts[i];
+        if ((seg === 'app' || seg === 'chat' || seg === 'gems') && parts[i + 1]) {
+          const next = parts[i + 1];
+          if (next && !['app', 'chat', 'gems'].includes(next)) {
+            return next;
+          }
+        }
+      }
+
+      if (parts.length > 0) {
+        const last = parts[parts.length - 1];
+        if (last && last.length >= 6 && !['app', 'gemini', 'chat', 'u'].includes(last)) {
+          return last;
+        }
+      }
+    } catch (err) {
+      console.error('[Izy Token Monitor] Erro ao identificar Chat ID:', err);
+    }
+    return 'chat_default';
+  }
+
+  function getStoredChatData(chatId) {
+    return new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['izy_chat_store'], (res) => {
+          const store = res.izy_chat_store || {};
+          resolve(store[chatId] || null);
+        });
+      } else {
+        resolve(null);
+      }
+    });
+  }
+
+  function saveStoredChatData(chatId, data) {
+    return new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['izy_chat_store'], (res) => {
+          const store = res.izy_chat_store || {};
+          store[chatId] = {
+            ...store[chatId],
+            ...data,
+            chatId: chatId,
+            lastUpdated: Date.now()
+          };
+          chrome.storage.local.set({ izy_chat_store: store }, resolve);
+        });
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async function restoreTokensForChat(chatId) {
+    if (!config.enablePerChatTracking) return;
+    const chatData = await getStoredChatData(chatId);
+    if (chatData && typeof chatData.tokens === 'number') {
+      storedChatTokens = chatData.tokens;
+      currentTokenCount = chatData.tokens;
+    } else {
+      storedChatTokens = 0;
+      currentTokenCount = 0;
+    }
+    updateMinimalHUD();
+  }
+
+  function setupURLObserver() {
+    function checkUrlChange() {
+      const newChatId = getChatId();
+      if (newChatId !== currentChatId) {
+        const oldChatId = currentChatId;
+        currentChatId = newChatId;
+        lastTextHash = '';
+
+        if (oldChatId === 'chat_default' && newChatId !== 'chat_default') {
+          migrateDefaultChatTokens(newChatId);
+        } else {
+          restoreTokensForChat(newChatId).then(() => {
+            calculateTokens();
+          });
+        }
+      }
+    }
+
+    const originalPush = history.pushState;
+    if (originalPush) {
+      history.pushState = function () {
+        originalPush.apply(this, arguments);
+        checkUrlChange();
+      };
+    }
+
+    const originalReplace = history.replaceState;
+    if (originalReplace) {
+      history.replaceState = function () {
+        originalReplace.apply(this, arguments);
+        checkUrlChange();
+      };
+    }
+
+    window.addEventListener('popstate', checkUrlChange);
+    setInterval(checkUrlChange, 1000);
+  }
+
+  async function migrateDefaultChatTokens(newChatId) {
+    const defaultData = await getStoredChatData('chat_default');
+    const existingNewData = await getStoredChatData(newChatId);
+
+    if (defaultData && defaultData.tokens > 0 && (!existingNewData || !existingNewData.tokens)) {
+      await saveStoredChatData(newChatId, {
+        tokens: defaultData.tokens,
+        textHash: defaultData.textHash,
+        messageCount: defaultData.messageCount,
+        firstSeen: defaultData.firstSeen || Date.now()
+      });
+      await saveStoredChatData('chat_default', { tokens: 0, textHash: '' });
+    }
+    await restoreTokensForChat(newChatId);
+    calculateTokens();
   }
 
   function loadConfig() {
@@ -82,6 +221,7 @@
             errorMarginPercent: 15,
             enableEarlyAlert: true,
             enablePersistentBlock: true,
+            enablePerChatTracking: true,
             hudPosition: 'top-right',
             autoCollapse: true,
             model: 'gemini-1.5-flash'
@@ -105,7 +245,7 @@
 
   function setupMessageBridge() {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-      chrome.runtime.onMessage.addListener((message) => {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message && message.action === 'SETTINGS_UPDATED') {
           config = { ...config, ...message.settings };
           if (message.settings.warningThresholdPercent) {
@@ -115,27 +255,64 @@
           updatePositionClass();
           updateMinimalHUD();
           calculateTokens();
+        } else if (message && message.action === 'GET_CHAT_INFO') {
+          sendResponse({
+            chatId: currentChatId,
+            tokens: currentTokenCount,
+            storedTokens: storedChatTokens
+          });
+        } else if (message && message.action === 'RESET_CHAT_TOKENS') {
+          if (currentChatId) {
+            saveStoredChatData(currentChatId, { tokens: 0, textHash: '' }).then(() => {
+              storedChatTokens = 0;
+              currentTokenCount = 0;
+              lastTextHash = '';
+              updateMinimalHUD();
+              calculateTokens();
+              sendResponse({ success: true });
+            });
+            return true;
+          }
         }
       });
     }
   }
 
   function extractCleanText() {
-    const chunks = [];
-    for (const sel of MESSAGE_SELECTORS) {
-      const elements = document.querySelectorAll(sel);
-      if (elements && elements.length > 0) {
-        elements.forEach((node) => {
-          const clone = node.cloneNode(true);
-          EXCLUDE_SELECTORS.forEach((ex) => {
-            clone.querySelectorAll(ex).forEach((el) => el.remove());
-          });
-          const text = (clone.innerText || clone.textContent || '').trim();
-          if (text) chunks.push(text);
-        });
+    let messageNodes = [];
+
+    for (const sel of PRIMARY_MESSAGE_SELECTORS) {
+      const found = document.querySelectorAll(sel);
+      if (found && found.length > 0) {
+        messageNodes.push(...Array.from(found));
       }
     }
-    return chunks.join('\n\n');
+
+    if (messageNodes.length === 0) {
+      for (const sel of FALLBACK_MESSAGE_SELECTORS) {
+        const found = document.querySelectorAll(sel);
+        if (found && found.length > 0) {
+          messageNodes.push(...Array.from(found));
+        }
+      }
+    }
+
+    // Filter out nested child elements if parent is already captured
+    messageNodes = messageNodes.filter((node, index, self) => {
+      return !self.some((other, otherIdx) => otherIdx !== index && other.contains(node));
+    });
+
+    const chunks = [];
+    messageNodes.forEach((node) => {
+      const clone = node.cloneNode(true);
+      EXCLUDE_SELECTORS.forEach((ex) => {
+        clone.querySelectorAll(ex).forEach((el) => el.remove());
+      });
+      const text = (clone.innerText || clone.textContent || '').trim();
+      if (text) chunks.push(text);
+    });
+
+    return { text: chunks.join('\n\n'), count: messageNodes.length };
   }
 
   function hashString(str) {
@@ -148,14 +325,19 @@
   }
 
   async function calculateTokens() {
-    const fullText = extractCleanText();
+    const { text: fullText, count: messageCount } = extractCleanText();
     const hash = hashString(fullText);
 
     if (hash === lastTextHash && currentTokenCount > 0) return;
     lastTextHash = hash;
 
     if (!fullText) {
-      currentTokenCount = 0;
+      // Retain stored tokens during initial DOM load phase
+      if (storedChatTokens > 0) {
+        currentTokenCount = storedChatTokens;
+      } else {
+        currentTokenCount = 0;
+      }
       isApiFallback = false;
       isBlockDismissed = false;
       updateMinimalHUD();
@@ -165,23 +347,37 @@
     isCalculating = true;
     updateMinimalHUD();
 
+    let computedCount = 0;
+
     if (config.mode === 'api' && config.apiKey) {
       try {
         const res = await callTokenApi(fullText, config.model);
         if (res && res.success && typeof res.totalTokens === 'number') {
-          currentTokenCount = res.totalTokens;
+          computedCount = res.totalTokens;
           isApiFallback = false;
         } else {
           isApiFallback = true;
-          currentTokenCount = Math.max(1, Math.ceil(fullText.length / 3.5));
+          computedCount = Math.max(1, Math.ceil(fullText.length / 3.5));
         }
       } catch {
         isApiFallback = true;
-        currentTokenCount = Math.max(1, Math.ceil(fullText.length / 3.5));
+        computedCount = Math.max(1, Math.ceil(fullText.length / 3.5));
       }
     } else {
       isApiFallback = false;
-      currentTokenCount = Math.max(1, Math.ceil(fullText.length / 3.5));
+      computedCount = Math.max(1, Math.ceil(fullText.length / 3.5));
+    }
+
+    currentTokenCount = computedCount;
+    storedChatTokens = computedCount;
+
+    if (config.enablePerChatTracking && currentChatId) {
+      saveStoredChatData(currentChatId, {
+        tokens: computedCount,
+        textHash: hash,
+        messageCount: messageCount,
+        textLength: fullText.length
+      });
     }
 
     isCalculating = false;
@@ -190,7 +386,7 @@
 
   function callTokenApi(text, model) {
     return new Promise((resolve) => {
-      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+      if (typeof chrome !== 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         return resolve({ success: false });
       }
       chrome.runtime.sendMessage(
@@ -234,7 +430,7 @@
           </div>
         </div>
 
-        <!-- PERSISTENT NOTIFICATION BLOCK (Injects when Warning Threshold 10-20% is reached) -->
+        <!-- PERSISTENT NOTIFICATION BLOCK -->
         <div id="izy-persistent-notification" class="izy-persistent-notification izy-hidden">
           <div class="izy-persist-content">
             <div class="izy-persist-badge">
@@ -242,7 +438,7 @@
               <span id="izy-persist-title" class="izy-persist-title">Warning Threshold Atingido</span>
             </div>
             <p id="izy-persist-desc" class="izy-persist-desc">
-              O consumo atingiu <strong>0%</strong> do limite (Teto com margem: <strong>0 tok</strong>).
+              O consumo atingiu <strong>0%</strong> do limite.
             </p>
           </div>
           <button id="izy-persist-close-btn" class="izy-persist-close" title="Recolher Notificação">✕</button>
@@ -261,6 +457,16 @@
               <span class="izy-num-denom">/ <span id="izy-flyout-max">1.000.000</span></span>
             </div>
             <span id="izy-flyout-badge" class="izy-stat-badge">0.0%</span>
+          </div>
+
+          <div class="izy-detail-row">
+            <span>ID do Chat:</span>
+            <strong id="izy-chat-id-label" class="izy-chat-id-badge font-mono">--</strong>
+          </div>
+
+          <div class="izy-detail-row">
+            <span>Contabilização:</span>
+            <strong class="izy-text-emerald">Do início ao momento atual</strong>
           </div>
 
           <div class="izy-detail-row">
@@ -321,7 +527,6 @@
       });
     }
 
-    // Click outside to collapse flyout
     document.addEventListener('click', (e) => {
       if (isExpanded && !hudRoot.contains(e.target)) {
         isExpanded = false;
@@ -369,6 +574,7 @@
     const persistDesc = document.getElementById('izy-persist-desc');
     const modeIndicator = document.getElementById('izy-mode-indicator');
     const statusIndicator = document.getElementById('izy-status-indicator');
+    const chatIdLabel = document.getElementById('izy-chat-id-label');
 
     if (!pillCount) return;
 
@@ -397,6 +603,12 @@
     if (projectedVal) projectedVal.textContent = `${formatNum(projected)} tok`;
     if (marginVal) marginVal.textContent = String(margin);
 
+    if (chatIdLabel) {
+      const displayId = currentChatId.length > 12 ? `${currentChatId.substring(0, 10)}...` : currentChatId;
+      chatIdLabel.textContent = displayId;
+      chatIdLabel.title = `ID completo: ${currentChatId}`;
+    }
+
     // Warning Threshold evaluation
     const isWarningTriggered = enableEarlyAlert && tokens > 0 && (pct >= warningThreshold || projectedPct >= warningThreshold);
     const pill = document.getElementById('izy-hud-pill');
@@ -405,7 +617,7 @@
       pill.classList.toggle('izy-alert-state', isWarningTriggered);
     }
 
-    // PERSISTENT NOTIFICATION BLOCK INJECTION & DISPLAY
+    // PERSISTENT NOTIFICATION BLOCK
     if (persistentBlock) {
       if (isWarningTriggered && enablePersistentBlock && !isBlockDismissed) {
         persistentBlock.classList.remove('izy-hidden');
@@ -413,7 +625,7 @@
           persistTitle.textContent = `Warning Threshold (${warningThreshold}%) Atingido`;
         }
         if (persistDesc) {
-          persistDesc.innerHTML = `Consumo atual: <strong>${pctStr}</strong> (${formatNum(tokens)} / ${formatNum(max)} tok). Teto projetado (+ ${margin}%): <strong>${formatNum(projected)} tok</strong>.`;
+          persistDesc.innerHTML = `Consumo no Chat <strong>${currentChatId}</strong>: <strong>${pctStr}</strong> (${formatNum(tokens)} / ${formatNum(max)} tok). Teto projetado (+ ${margin}%): <strong>${formatNum(projected)} tok</strong>.`;
         }
       } else {
         persistentBlock.classList.add('izy-hidden');

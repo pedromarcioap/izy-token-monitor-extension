@@ -118,6 +118,24 @@
         </div>
       </div>
 
+      <!-- Per-Chat Tracking Panel -->
+      <div class="izy-panel">
+        <div class="izy-panel-header">
+          <span class="izy-panel-title">Contabilização por Chat (ID)</span>
+          <input type="checkbox" id="enable-per-chat-checkbox" checked class="izy-check" />
+        </div>
+        <p class="izy-hint">
+          Armazena a contagem de tokens por Chat ID do início da conversa até o momento atual, sem resetar no reload.
+        </p>
+        <div class="izy-label-split" style="margin-top: 4px;">
+          <span class="izy-hint">Chat Atual:</span>
+          <span id="active-chat-badge" class="izy-chat-badge font-mono">Carregando...</span>
+        </div>
+        <button type="button" id="reset-chat-btn" class="izy-btn-secondary">
+          Resetar Tokens deste Chat
+        </button>
+      </div>
+
       <!-- Display Positioning -->
       <div class="izy-field">
         <label for="hud-position-select">Posicionamento do HUD</label>
