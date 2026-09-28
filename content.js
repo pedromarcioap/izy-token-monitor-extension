@@ -1,7 +1,8 @@
 /**
  * Izy Token Monitor & Optimizer - Main Content Script (Manifest V3)
- * Orchestrates multi-platform adapters (Gemini, ChatGPT, Claude), real-time token tracking
- * with 800ms debounced MutationObserver, dynamic progress bar styling, and input optimization tools.
+ * Orchestrates multi-platform adapters (Gemini, ChatGPT, Claude), cumulative context tracking
+ * (User Inputs + Assistant Outputs + Active Draft Input), real-time input event triggers,
+ * 700ms debounced MutationObserver for streaming, dynamic progress bar styling, and optimizer tools.
  */
 
 (function () {
@@ -24,6 +25,7 @@
   let isCalculating = false;
   let lastTextHash = '';
   let debounceTimer = null;
+  let inputDebounceTimer = null;
   let currentTokenCount = 0;
   let currentChatId = 'chat_default';
 
@@ -44,17 +46,18 @@
 
     injectHUD();
     setupDOMObserver();
+    setupInputObserver();
     setupMessageBridge();
     setupURLObserver();
 
     // Initial calculation delay after DOM load
     setTimeout(() => {
-      calculateTokens();
+      recalculateTokens();
     }, 800);
   }
 
   /**
-   * Generates a fast hash of the conversation text to avoid unnecessary recalculations
+   * Generates a fast hash of the full text to avoid unnecessary recalculations
    */
   function hashString(str) {
     let hash = 0;
@@ -136,7 +139,7 @@
       if (newChatId !== currentChatId) {
         currentChatId = newChatId;
         lastTextHash = '';
-        calculateTokens();
+        recalculateTokens();
       }
     }
 
@@ -161,7 +164,23 @@
   }
 
   /**
-   * DOM MutationObserver with strict 800ms debounce
+   * Active Input Event Observer for real-time token recalculation while typing
+   */
+  function setupInputObserver() {
+    const handleInput = () => {
+      if (inputDebounceTimer) clearTimeout(inputDebounceTimer);
+      inputDebounceTimer = setTimeout(() => {
+        recalculateTokens();
+      }, 150);
+    };
+
+    document.addEventListener('input', handleInput, true);
+    document.addEventListener('keyup', handleInput, true);
+    document.addEventListener('compositionend', handleInput, true);
+  }
+
+  /**
+   * DOM MutationObserver with 700ms debounce to accommodate response streaming
    */
   function setupDOMObserver() {
     const targetNode = document.body;
@@ -169,8 +188,8 @@
     const observer = new MutationObserver(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        calculateTokens();
-      }, 800); // 800ms debounce requirement
+        recalculateTokens();
+      }, 700); // 700ms debounce requirement (600ms - 800ms)
     });
 
     observer.observe(targetNode, {
@@ -181,17 +200,48 @@
   }
 
   /**
-   * Computes tokens using active platform adapter
+   * Computes tokens using cumulative sum:
+   * 1. All previous user questions + assistant responses (Conversation History)
+   * 2. Active draft text in prompt input box
    */
-  function calculateTokens() {
+  function recalculateTokens() {
     try {
-      const { text: fullText } = adapter.getConversationText();
-      const hash = hashString(fullText);
+      // 1. Extract conversation text from rendered DOM history (User + Assistant)
+      const conversationRes = adapter.getConversationText();
+      const conversationText = conversationRes && conversationRes.text ? conversationRes.text.trim() : '';
 
+      // 2. Extract active draft input text from input element
+      let draftText = '';
+      if (typeof adapter.getDraftText === 'function') {
+        draftText = adapter.getDraftText() || '';
+      } else {
+        const inputEl = adapter.getInputElement();
+        if (inputEl) {
+          if (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT') {
+            draftText = inputEl.value || '';
+          } else {
+            draftText = inputEl.innerText || inputEl.textContent || '';
+          }
+        }
+      }
+      draftText = draftText.trim();
+
+      // 3. Cumulative sum: conversationText + " " + draftText
+      let totalText = '';
+      if (conversationText && draftText) {
+        totalText = conversationText + ' ' + draftText;
+      } else if (conversationText) {
+        totalText = conversationText;
+      } else if (draftText) {
+        totalText = draftText;
+      }
+
+      // 4. Hash verification for caching
+      const hash = hashString(totalText);
       if (hash === lastTextHash && currentTokenCount >= 0) return;
       lastTextHash = hash;
 
-      if (!fullText) {
+      if (!totalText) {
         currentTokenCount = 0;
         updateHUD();
         return;
@@ -200,17 +250,22 @@
       isCalculating = true;
       updateHUD();
 
-      // Heuristic token estimation using adapter's charsPerToken multiplier
-      const estimatedTokens = Math.max(0, Math.ceil(fullText.length / adapter.charsPerToken));
+      // 5. Heuristic token estimation using adapter's charsPerToken multiplier
+      const estimatedTokens = Math.max(0, Math.ceil(totalText.length / adapter.charsPerToken));
 
       currentTokenCount = estimatedTokens;
       isCalculating = false;
       updateHUD();
     } catch (err) {
-      console.error('[Izy Monitor] Erro ao calcular tokens:', err);
+      console.error('[Izy Monitor] Erro ao recalcular tokens:', err);
       isCalculating = false;
       updateHUD();
     }
+  }
+
+  // Alias for compatibility
+  function calculateTokens() {
+    return recalculateTokens();
   }
 
   /**
@@ -331,7 +386,7 @@
       refreshBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         lastTextHash = '';
-        calculateTokens();
+        recalculateTokens();
         showToast('Tokens recalculados!');
       });
     }
@@ -353,6 +408,8 @@
         const cleaned = window.IzyPromptOptimizer.cleanNoise(currentVal);
         window.IzyPromptOptimizer.setInputValue(inputEl, cleaned);
         const charsSaved = currentVal.length - cleaned.length;
+        lastTextHash = '';
+        recalculateTokens();
         showToast(charsSaved > 0 ? `Ruído removido! (-${charsSaved} chars)` : 'Texto já otimizado!');
       });
     }
@@ -373,6 +430,8 @@
         const minified = window.IzyPromptOptimizer.minifyCodeOrJson(currentVal);
         window.IzyPromptOptimizer.setInputValue(inputEl, minified);
         const charsSaved = currentVal.length - minified.length;
+        lastTextHash = '';
+        recalculateTokens();
         showToast(charsSaved > 0 ? `Código/JSON minificado! (-${charsSaved} chars)` : 'Nenhum bloco minificável encontrado.');
       });
     }
