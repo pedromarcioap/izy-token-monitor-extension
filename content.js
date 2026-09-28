@@ -38,22 +38,40 @@
   };
 
   /**
+   * Safe check for extension context validity
+   */
+  function isContextValid() {
+    try {
+      return typeof chrome !== 'undefined' && Boolean(chrome.runtime) && Boolean(chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
    * Main Initialization Procedure
    */
   async function init() {
-    await loadConfig();
-    currentChatId = getChatId();
+    try {
+      if (!isContextValid()) return;
+      await loadConfig();
+      currentChatId = getChatId();
 
-    injectHUD();
-    setupDOMObserver();
-    setupInputObserver();
-    setupMessageBridge();
-    setupURLObserver();
+      injectHUD();
+      setupDOMObserver();
+      setupInputObserver();
+      setupMessageBridge();
+      setupURLObserver();
 
-    // Initial calculation delay after DOM load
-    setTimeout(() => {
-      recalculateTokens();
-    }, 800);
+      // Initial calculation delay after DOM load
+      setTimeout(() => {
+        if (isContextValid()) {
+          recalculateTokens();
+        }
+      }, 800);
+    } catch (err) {
+      console.warn('[Izy Monitor] Extension context invalidated or init error:', err);
+    }
   }
 
   /**
@@ -90,19 +108,30 @@
    */
   function loadConfig() {
     return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
-        chrome.storage.sync.get(
-          {
-            hudPosition: 'top-right',
-            autoCollapse: true
-          },
-          (items) => {
-            config = { ...config, ...items };
-            isExpanded = !config.autoCollapse;
-            resolve();
-          }
-        );
-      } else {
+      try {
+        if (isContextValid() && chrome.storage && chrome.storage.sync) {
+          chrome.storage.sync.get(
+            {
+              hudPosition: 'top-right',
+              autoCollapse: true
+            },
+            (items) => {
+              try {
+                if (isContextValid() && !chrome.runtime.lastError && items) {
+                  config = { ...config, ...items };
+                  isExpanded = !config.autoCollapse;
+                }
+              } catch (e) {
+                // Context invalidated during storage callback
+              }
+              resolve();
+            }
+          );
+        } else {
+          resolve();
+        }
+      } catch (err) {
+        // Context invalidated synchronously
         resolve();
       }
     });
@@ -112,21 +141,30 @@
    * Setup extension runtime message bridge
    */
   function setupMessageBridge() {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message && message.action === 'SETTINGS_UPDATED') {
-          config = { ...config, ...message.settings };
-          updatePositionClass();
-          updateHUD();
-        } else if (message && message.action === 'GET_CHAT_INFO') {
-          sendResponse({
-            platform: adapter.name,
-            chatId: currentChatId,
-            tokens: currentTokenCount,
-            maxTokens: adapter.maxContextTokens
-          });
-        }
-      });
+    try {
+      if (isContextValid() && chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+          try {
+            if (!isContextValid()) return;
+            if (message && message.action === 'SETTINGS_UPDATED') {
+              config = { ...config, ...message.settings };
+              updatePositionClass();
+              updateHUD();
+            } else if (message && message.action === 'GET_CHAT_INFO') {
+              sendResponse({
+                platform: adapter.name,
+                chatId: currentChatId,
+                tokens: currentTokenCount,
+                maxTokens: adapter.maxContextTokens
+              });
+            }
+          } catch (err) {
+            // Context invalidated during message handling
+          }
+        });
+      }
+    } catch (err) {
+      // Extension context invalidated
     }
   }
 
@@ -134,7 +172,12 @@
    * URL Navigation Observer for Single Page Application (SPA) state changes
    */
   function setupURLObserver() {
+    let urlInterval = null;
     function checkUrlChange() {
+      if (!isContextValid()) {
+        if (urlInterval) clearInterval(urlInterval);
+        return;
+      }
       const newChatId = getChatId();
       if (newChatId !== currentChatId) {
         currentChatId = newChatId;
@@ -160,7 +203,7 @@
     }
 
     window.addEventListener('popstate', checkUrlChange);
-    setInterval(checkUrlChange, 1200);
+    urlInterval = setInterval(checkUrlChange, 1200);
   }
 
   /**
@@ -168,6 +211,7 @@
    */
   function setupInputObserver() {
     const handleInput = () => {
+      if (!isContextValid()) return;
       if (inputDebounceTimer) clearTimeout(inputDebounceTimer);
       inputDebounceTimer = setTimeout(() => {
         recalculateTokens();
@@ -186,6 +230,10 @@
     const targetNode = document.body;
 
     const observer = new MutationObserver(() => {
+      if (!isContextValid()) {
+        observer.disconnect();
+        return;
+      }
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         recalculateTokens();
@@ -205,6 +253,8 @@
    * 2. Active draft text in prompt input box
    */
   function recalculateTokens() {
+    if (!isContextValid()) return;
+
     try {
       // 1. Extract conversation text from rendered DOM history (User + Assistant)
       const conversationRes = adapter.getConversationText();

@@ -174,18 +174,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function notifyTabOfSettings(tab, payload) {
     if (!tab.id) return;
-    chrome.tabs.sendMessage(
-      tab.id,
-      {
-        action: 'SETTINGS_UPDATED',
-        settings: payload
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          // Suppress error when content script is not listening in target tab
+    try {
+      chrome.tabs.sendMessage(
+        tab.id,
+        {
+          action: 'SETTINGS_UPDATED',
+          settings: payload
+        },
+        () => {
+          if (chrome.runtime?.lastError) {
+            // Suppress error when content script is not listening in target tab
+          }
         }
-      }
-    );
+      );
+    } catch (err) {
+      // Suppress error if tab is invalid or context invalidated
+    }
   }
 
   function broadcastSettingsToTabs(payload) {

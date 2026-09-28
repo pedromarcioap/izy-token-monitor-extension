@@ -4,15 +4,25 @@
  */
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message && message.action === 'COUNT_TOKENS') {
+  if (message?.action === 'COUNT_TOKENS') {
     handleCountTokens(message.text, message.model)
-      .then((res) => sendResponse(res))
+      .then((res) => {
+        try {
+          sendResponse(res);
+        } catch (err) {
+          // Suppress error if message channel closed or context invalidated
+        }
+      })
       .catch((err) => {
-        sendResponse({
-          success: false,
-          error: err.message || 'Erro no service worker.',
-          fallbackToHeuristic: true
-        });
+        try {
+          sendResponse({
+            success: false,
+            error: err.message || 'Erro no service worker.',
+            fallbackToHeuristic: true
+          });
+        } catch (err) {
+          // Suppress error if message channel closed
+        }
       });
     return true;
   }
