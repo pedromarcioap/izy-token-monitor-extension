@@ -73,15 +73,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!activeChatBadge) return;
     if (res?.chatId) {
       const displayId = res.chatId.length > 12 ? `${res.chatId.substring(0, 10)}...` : res.chatId;
-      activeChatBadge.textContent = `${displayId} (${res.tokens || 0} tok)`;
+      const platformName = res.platform ? res.platform.replace('Google ', '').replace('OpenAI ', '').replace('Anthropic ', '') : 'IA';
+      activeChatBadge.textContent = `${platformName}: ${displayId} (${res.tokens || 0} tok)`;
     } else {
-      activeChatBadge.textContent = 'Aba Gemini não ativa';
+      activeChatBadge.textContent = 'Aba de IA não ativa';
     }
   }
 
   function handleActiveTabForChatInfo(tabs) {
     if (tabs && tabs.length > 0 && tabs[0].id) {
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_CHAT_INFO' }, renderActiveChatInfo);
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_CHAT_INFO' }, (res) => {
+        if (chrome.runtime.lastError) {
+          // Content script is not listening or not loaded on this tab
+          renderActiveChatInfo(null);
+          return;
+        }
+        renderActiveChatInfo(res);
+      });
+    } else {
+      renderActiveChatInfo(null);
     }
   }
 
@@ -127,7 +137,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleActiveTabForReset(tabs) {
     if (tabs && tabs.length > 0 && tabs[0].id) {
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'RESET_CHAT_TOKENS' }, handleResetChatResponse);
+      chrome.tabs.sendMessage(tabs[0].id, { action: 'RESET_CHAT_TOKENS' }, (res) => {
+        if (chrome.runtime.lastError) {
+          showStatus('Aba de IA ativa não encontrada.', 'warning');
+          return;
+        }
+        handleResetChatResponse(res);
+      });
     }
   }
 
@@ -158,22 +174,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function notifyTabOfSettings(tab, payload) {
     if (!tab.id) return;
-    chrome.tabs.sendMessage(tab.id, {
-      action: 'SETTINGS_UPDATED',
-      settings: payload
-    }).catch(() => { });
+    chrome.tabs.sendMessage(
+      tab.id,
+      {
+        action: 'SETTINGS_UPDATED',
+        settings: payload
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          // Suppress error when content script is not listening in target tab
+        }
+      }
+    );
   }
 
-  function notifyGeminiTabs(tabs, payload) {
-    if (tabs && tabs.length > 0) {
-      tabs.forEach((tab) => notifyTabOfSettings(tab, payload));
-    }
-  }
-
-  function broadcastSettingsToGeminiTabs(payload) {
-    chrome.tabs.query({ url: '*://gemini.google.com/*' }, (tabs) => {
-      notifyGeminiTabs(tabs, payload);
-    });
+  function broadcastSettingsToTabs(payload) {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.query) return;
+    chrome.tabs.query(
+      {
+        url: [
+          '*://gemini.google.com/*',
+          '*://chatgpt.com/*',
+          '*://chat.openai.com/*',
+          '*://claude.ai/*'
+        ]
+      },
+      (tabs) => {
+        if (chrome.runtime.lastError) return;
+        if (tabs && tabs.length > 0) {
+          tabs.forEach((tab) => notifyTabOfSettings(tab, payload));
+        }
+      }
+    );
   }
 
   function buildSettingsPayload() {
@@ -207,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
       chrome.storage.sync.set(payload, () => {
         showStatus('Preferências salvas com sucesso!', 'success');
-        broadcastSettingsToGeminiTabs(payload);
+        broadcastSettingsToTabs(payload);
       });
     } else {
       showStatus('Salvo localmente.', 'success');
